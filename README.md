@@ -25,3 +25,7 @@ Every push to `main` builds an APK on GitHub (Actions tab, "Build Android APK").
 ## Skill tests
 
 The Skills tab runs a 30-question test (five per skill, easy to hard) and turns the score into a 1 to 10 rating for each of six skills. Take the baseline test first, then retest every 5, 7, 10 or 30 days. Each test shows the change since the last one and lists the questions you got wrong with the right answers.
+
+## Block alarm
+
+With "Alarm when a block ends" switched on, the end of each block rings until you stop it and asks you to mark the block done. In the Android app the phone also rings for about 18 seconds when the app is closed. Switch it off for a short alert instead.

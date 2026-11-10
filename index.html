@@ -161,6 +161,10 @@ td.num,th.num{text-align:right}
 .pill.due{background:var(--warn-soft);color:var(--warn)}
 .overall{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:baseline}
 .overall b{font-family:var(--f-head);font-size:34px;letter-spacing:-.02em;line-height:1}
+.alarm{position:fixed;inset:0;z-index:50;background:rgba(8,12,18,.66);display:grid;place-items:center;padding:max(16px,env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) max(16px,env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
+.alarm-box{background:var(--surface);color:var(--fg);border:2px solid var(--accent);border-radius:16px;padding:24px;max-width:420px;width:100%;display:flex;flex-direction:column;gap:12px}
+.alarm-box h2{font-size:26px;line-height:1.15}
+.alarm-box p{margin:0;font-size:16px}
 
 @media (max-width:640px){
   .now{grid-template-columns:minmax(0,1fr)}
@@ -233,11 +237,13 @@ td.num,th.num{text-align:right}
         <h2>Today so far</h2>
         <div class="stats" id="todayStats"></div>
         <div class="toggles">
+          <label><input type="checkbox" id="optAlarm" data-opt="alarm"> Alarm when a block ends</label>
           <label><input type="checkbox" id="optSound" data-opt="sound"> Alert sound</label>
           <label><input type="checkbox" id="optVoice" data-opt="voice"> Voice reminders</label>
           <label><input type="checkbox" id="optWake" data-opt="wake"> Keep screen on</label>
         </div>
-        <span class="muted" style="font-size:13px">Reminders fire while this page is open. Keep it in a tab or pinned on a second screen.</span>
+        <div class="actions" style="margin:0"><button class="btn" data-act="alTest">Try the alarm</button></div>
+        <span class="muted" style="font-size:13px">With the alarm on, the end of each block rings until you stop it. With it off, you get a short alert.</span>
       </div>
     </div>
 
@@ -306,6 +312,18 @@ td.num,th.num{text-align:right}
   </section>
 </div>
 
+<div class="alarm" id="alarm" hidden role="alertdialog" aria-modal="true" aria-labelledby="alTitle" aria-describedby="alText">
+  <div class="alarm-box">
+    <span class="label">Block alarm</span>
+    <h2 id="alTitle"></h2>
+    <p id="alText"></p>
+    <div class="actions">
+      <button class="btn primary" id="alDone" data-act="alDone">Mark it done and move on</button>
+      <button class="btn" data-act="alStop">Stop alarm</button>
+    </div>
+  </div>
+</div>
+
 <script>
 (function(){
 "use strict";
@@ -344,8 +362,8 @@ var SKILLS=[
 ];
 
 /* ---------- state ---------- */
-var S={days:{},skills:{},target:90,sound:true,voice:true,wake:false,interval:7,lastIds:[],lastResult:null,updatedAt:0};
-function norm(o){o=o||{};return {days:o.days||{},skills:o.skills||{},target:+o.target||90,sound:o.sound!==false,voice:o.voice!==false,wake:!!o.wake,interval:[5,7,10,30].indexOf(+o.interval)>=0?+o.interval:7,lastIds:o.lastIds||[],lastResult:o.lastResult||null,updatedAt:+o.updatedAt||0}}
+var S={days:{},skills:{},target:90,sound:true,voice:true,wake:false,alarm:true,interval:7,lastIds:[],lastResult:null,updatedAt:0};
+function norm(o){o=o||{};return {days:o.days||{},skills:o.skills||{},target:+o.target||90,sound:o.sound!==false,voice:o.voice!==false,wake:!!o.wake,alarm:o.alarm!==false,interval:[5,7,10,30].indexOf(+o.interval)>=0?+o.interval:7,lastIds:o.lastIds||[],lastResult:o.lastResult||null,updatedAt:+o.updatedAt||0}}
 try{var raw=localStorage.getItem(KEY);if(raw)S=norm(JSON.parse(raw))}catch(e){}
 
 function dkey(d){d=d||new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")}
@@ -392,8 +410,8 @@ function initStore(){
 /* ---------- alerts, sound, voice ---------- */
 var ac=null,TTS=null;
 if(window.claude&&claude.use){claude.use("tts").then(function(t){TTS=t}).catch(function(){})}
-function beep(){
-  if(!S.sound)return;
+function beep(force){
+  if(!S.sound&&!force)return;
   try{
     ac=ac||new (window.AudioContext||window.webkitAudioContext)();
     var t=ac.currentTime;
@@ -415,6 +433,24 @@ function notify(msg,kind,speech){
   el.appendChild(p);el.appendChild(b);box.insertBefore(el,box.firstChild);
   while(box.children.length>3)box.removeChild(box.lastChild);
   beep();say(speech||msg);
+}
+
+var ALARM={prev:null,timer:null,n:0};
+function ringOnce(){beep(true);try{navigator.vibrate&&navigator.vibrate([400,200,400])}catch(e){}}
+function showAlarm(prev,b){
+  ALARM.prev=prev&&!prev.rest?prev:null;
+  $("#alTitle").textContent=ALARM.prev?ALARM.prev.n+" is done":"Time to start";
+  var txt=b.rest?"Work is over. Sleep now, seven hours, no exceptions.":"Move on to: "+b.n+", until "+hm(b.e)+".";
+  $("#alText").textContent=txt;
+  $("#alDone").hidden=!ALARM.prev||!!getDay(dkey()).done[ALARM.prev.id];
+  $("#alarm").hidden=false;
+  say((ALARM.prev?"Block done. ":"")+txt);
+  clearInterval(ALARM.timer);ALARM.n=0;ringOnce();
+  ALARM.timer=setInterval(function(){if(++ALARM.n>=30){clearInterval(ALARM.timer);ALARM.timer=null;return}ringOnce()},1000);
+}
+function stopAlarm(){
+  clearInterval(ALARM.timer);ALARM.timer=null;$("#alarm").hidden=true;
+  try{navigator.vibrate&&navigator.vibrate(0)}catch(e){}
 }
 
 /* ---------- clock and current block ---------- */
@@ -453,7 +489,8 @@ function tick(){
     var prev=B.find(function(x){return x.id===lastId});
     lastId=b.id;
     var late=prev&&!prev.rest&&!getDay(dkey()).done[prev.id];
-    if(b.rest){notify("Work is over. Sleep starts now, seven hours, no exceptions.","info","Time to sleep. Seven hours, no exceptions.")}
+    if(S.alarm){showAlarm(prev,b)}
+    else if(b.rest){notify("Work is over. Sleep starts now, seven hours, no exceptions.","info","Time to sleep. Seven hours, no exceptions.")}
     else{
       var msg="It is "+hm(b.s)+". Now: "+b.n+" until "+hm(b.e)+".";
       if(late)msg+=" You did not mark "+prev.n+" as done.";
@@ -682,11 +719,14 @@ function scheduleNative(){
   LN.requestPermissions().then(function(p){
     if(p.display!=="granted")return;
     return LN.getPending().then(function(r){return r.notifications&&r.notifications.length?LN.cancel({notifications:r.notifications}):null}).then(function(){
-      var list=TRACK.map(function(b,i){return {id:i+1,title:hm(b.s)+" · "+b.n,body:"Until "+hm(b.e)+". Open the tracker to mark it done.",schedule:{on:{hour:Math.floor(b.s/60),minute:b.s%60},allowWhileIdle:true}}});
-      list.push({id:50,title:"Sleep time",body:"Work is over. Seven hours, no exceptions.",schedule:{on:{hour:23,minute:0},allowWhileIdle:true}});
+      var ch=S.alarm?"alarm":"";
+      function mk(id,title,body,sch){var o={id:id,title:title,body:body,schedule:sch};if(ch){o.channelId=ch;o.sound="alarm.wav"}return o}
+      var list=TRACK.map(function(b,i){var pv=i?TRACK[i-1]:null;return mk(i+1,pv?pv.n+" is done":"Time to start",(pv?"Move on to: ":"First up: ")+b.n+", until "+hm(b.e)+".",{on:{hour:Math.floor(b.s/60),minute:b.s%60},allowWhileIdle:true})});
+      list.push(mk(50,"Work is over","Sleep now. Seven hours, no exceptions.",{on:{hour:23,minute:0},allowWhileIdle:true}));
       var du=dueInfo();
       if(!du.base&&du.days>0){var at=new Date(du.date);at.setHours(9,45,0,0);list.push({id:60,title:"Skill test due today",body:"Take your "+S.interval+"-day test to update your ratings.",schedule:{at:at,allowWhileIdle:true}})}
-      return LN.schedule({notifications:list});
+      var pre=ch?LN.createChannel({id:"alarm",name:"Block alarms",description:"Rings when a block ends",importance:5,visibility:1,sound:"alarm.wav",vibration:true}):Promise.resolve();
+      return pre.then(function(){return LN.schedule({notifications:list})});
     });
   }).catch(function(){});
 }
@@ -708,7 +748,7 @@ function skillChart(ds){
 /* ---------- wiring ---------- */
 function renderAll(){
   renderPresets();renderToday();renderLog();renderWeek();renderSkills();
-  $("#optSound").checked=S.sound;$("#optVoice").checked=S.voice;$("#optWake").checked=S.wake;
+  $("#optAlarm").checked=S.alarm;$("#optSound").checked=S.sound;$("#optVoice").checked=S.voice;$("#optWake").checked=S.wake;
   timerTick();
 }
 function showTab(t){
@@ -745,13 +785,16 @@ document.addEventListener("click",function(e){
   else if(a==="pick"){if(RUN){RUN.picks[RUN.pos]=+t.dataset.o;renderRun()}}
   else if(a==="nextQ"){if(RUN&&RUN.picks[RUN.pos]!==undefined){if(RUN.pos===RUN.qs.length-1)finishTest();else{RUN.pos++;renderRun()}}}
   else if(a==="quitTest"){RUN=null;renderSkills()}
+  else if(a==="alStop"){stopAlarm()}
+  else if(a==="alDone"){if(ALARM.prev){ensureDay(k).done[ALARM.prev.id]=1;save();renderToday();renderWeek()}stopAlarm()}
+  else if(a==="alTest"){var nn=now();showAlarm(B[(nn.i+B.length-1)%B.length],nn.b)}
   else if(a==="interval"){S.interval=+t.dataset.n;save();renderSkills();scheduleNative()}
 });
 document.addEventListener("change",function(e){
   var t=e.target;
   if(t.dataset.f&&t.tagName==="INPUT")setField(t.dataset.f,t.value);
   else if(t.id==="f-target"){S.target=Math.max(10,Math.min(168,+t.value||90));save();renderWeek();renderToday();t.value=S.target}
-  else if(t.dataset.opt){S[t.dataset.opt]=t.checked;save();if(t.dataset.opt==="wake")setWake(t.checked)}
+  else if(t.dataset.opt){S[t.dataset.opt]=t.checked;save();if(t.dataset.opt==="wake")setWake(t.checked);if(t.dataset.opt==="alarm")scheduleNative()}
 });
 document.addEventListener("input",function(e){
   var t=e.target;
