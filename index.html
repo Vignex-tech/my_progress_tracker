@@ -662,8 +662,21 @@ document.addEventListener("input",function(e){
   else if(t.dataset.sk){$("#skv-"+t.dataset.sk).textContent=t.value}
 });
 
+function scheduleNative(){
+  var LN=window.Capacitor&&Capacitor.Plugins&&Capacitor.Plugins.LocalNotifications;
+  if(!LN)return;
+  LN.requestPermissions().then(function(p){
+    if(p.display!=="granted")return;
+    return LN.getPending().then(function(r){return r.notifications&&r.notifications.length?LN.cancel({notifications:r.notifications}):null}).then(function(){
+      var list=TRACK.map(function(b,i){return {id:i+1,title:hm(b.s)+" · "+b.n,body:"Until "+hm(b.e)+". Open the tracker to mark it done.",schedule:{on:{hour:Math.floor(b.s/60),minute:b.s%60},allowWhileIdle:true}}});
+      list.push({id:50,title:"Sleep time",body:"Work is over. Seven hours, no exceptions.",schedule:{on:{hour:23,minute:0},allowWhileIdle:true}});
+      return LN.schedule({notifications:list});
+    });
+  }).catch(function(){});
+}
 renderAll();
 tick();
+scheduleNative();
 setInterval(tick,1000);
 initStore();
 if(S.wake)setWake(true);
