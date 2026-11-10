@@ -1,5 +1,19 @@
-<title>Jarvis Daily Tracker</title>
-<meta name="claude:viewport-fit-sides" content="cover">
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>My Progress Tracker</title>
+<meta name="theme-color" content="#2548E8">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Progress">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>:root{color-scheme:light dark;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{-webkit-text-size-adjust:100%}body{margin:0}[hidden]{display:none!important}</style>
+</head>
+<body>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500&family=Space+Grotesk:wght@500;700&display=swap">
 <style>
 /* Layout: one working column, a live "now" panel on top, tabs for Today / Progress / Skills.
@@ -371,6 +385,7 @@ function beep(){
 }
 function say(text){if(S.voice&&TTS){try{TTS.speak(text).catch(function(){})}catch(e){}}}
 function notify(msg,kind,speech){
+  try{navigator.vibrate&&navigator.vibrate([200,100,200])}catch(e){}
   var box=$("#alerts"),el=document.createElement("div");
   el.className="alert"+(kind==="warn"?" warn":"");
   var p=document.createElement("p");p.textContent=msg;
@@ -652,5 +667,9 @@ tick();
 setInterval(tick,1000);
 initStore();
 if(S.wake)setWake(true);
+if("serviceWorker" in navigator&&location.protocol==="https:"){navigator.serviceWorker.register("sw.js").catch(function(){})}
 })();
 </script>
+
+</body>
+</html>
