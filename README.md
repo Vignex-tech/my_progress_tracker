@@ -21,3 +21,7 @@ Reminders, sound and vibration run while the app is open. Keep it open or pinned
 ## Android app (APK)
 
 Every push to `main` builds an APK on GitHub (Actions tab, "Build Android APK"). Download `my-progress-tracker.apk` from the newest entry under Releases on your phone and install it (allow "install unknown apps" for your browser). The app schedules a phone notification at the start of every block, even when the app is closed.
+
+## Skill tests
+
+The Skills tab runs a 30-question test (five per skill, easy to hard) and turns the score into a 1 to 10 rating for each of six skills. Take the baseline test first, then retest every 5, 7, 10 or 30 days. Each test shows the change since the last one and lists the questions you got wrong with the right answers.

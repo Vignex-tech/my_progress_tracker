@@ -148,8 +148,19 @@ td.num,th.num{text-align:right}
 .skill input[type=range]{width:100%;accent-color:var(--accent)}
 .skill .v{text-align:right;font-weight:600}
 .delta{font-size:12px}
-.delta.up{color:var(--good)} .delta.down{color:var(--bad)}
+.delta .up{color:var(--good)} .delta .down{color:var(--bad)}
 .row{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;justify-content:space-between}
+.opts{display:flex;flex-direction:column;gap:8px}
+.opt{text-align:left;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:11px 14px;font-size:15px;line-height:1.4}
+.opt:hover{background:var(--surface2)}
+.opt[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft);font-weight:500}
+.tq{font-family:var(--f-head);font-size:19px;line-height:1.35;margin:4px 0;font-weight:500}
+.rv{padding:12px 0;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:3px}
+.rv:first-child{border-top:0}
+.rv .ok{color:var(--good)} .rv .no{color:var(--bad)}
+.pill.due{background:var(--warn-soft);color:var(--warn)}
+.overall{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:baseline}
+.overall b{font-family:var(--f-head);font-size:34px;letter-spacing:-.02em;line-height:1}
 
 @media (max-width:640px){
   .now{grid-template-columns:minmax(0,1fr)}
@@ -160,7 +171,7 @@ td.num,th.num{text-align:right}
   .blk .pill{grid-column:3;grid-row:1 / span 2}
   .blk .chk{grid-row:1 / span 2}
   .skill{grid-template-columns:minmax(0,1fr) 48px}
-  .skill input[type=range]{grid-column:1 / span 2;grid-row:2}
+  .skill .bar{grid-column:1 / span 2;grid-row:2}
 }
 @media (prefers-reduced-motion:no-preference){.bar>i,.pr{transition:width .6s linear,stroke-dashoffset .4s linear}}
 </style>
@@ -266,20 +277,31 @@ td.num,th.num{text-align:right}
   </section>
 
   <section id="tab-skills" class="wrap" style="gap:16px" hidden>
+    <div class="panel col" id="testHome">
+      <div class="row"><h2>Skill test</h2><span class="pill" id="dueLabel"></span></div>
+      <span class="muted">30 multiple-choice questions, five per skill, about 15 minutes. Your rating from 1 to 10 in each skill comes from your score, and harder questions are worth more. Answer without looking anything up, or the rating means nothing.</span>
+      <div class="field"><span class="label">Retest every</span><div class="presets" id="intervals"></div></div>
+      <div class="actions"><button class="btn primary" data-act="startTest" id="btnStart">Start baseline test</button><span class="muted" id="testMsg" aria-live="polite"></span></div>
+    </div>
+    <div class="panel col" id="testRun" hidden>
+      <div class="row"><span class="label" id="tqSkill"></span><span class="mono muted" id="tqCount"></span></div>
+      <div class="bar"><i id="tqBar"></i></div>
+      <div class="tq" id="tqText"></div>
+      <div class="opts" id="tqOpts"></div>
+      <div class="actions"><button class="btn primary" id="tqNext" data-act="nextQ" disabled>Next question</button><button class="btn" data-act="quitTest">Stop without saving</button></div>
+    </div>
     <div class="panel col">
-      <div class="row"><h2>Skill check-in</h2><span class="muted" id="ciDate"></span></div>
-      <span class="muted">Rate yourself 1 to 10 once a week, using the same standard each time. Back each rating with evidence: a solved problem set, a shipped project, a mock score.</span>
-      <div id="skillRows"></div>
-      <div class="field" style="max-width:240px">
-        <label for="f-quiz">Weekly quiz score (%)</label>
-        <input class="plain mono" type="number" id="f-quiz" min="0" max="100" inputmode="numeric" placeholder="e.g. 70">
-      </div>
-      <div class="actions"><button class="btn primary" data-act="saveSkills">Save check-in</button><span class="muted" id="ciMsg" aria-live="polite"></span></div>
+      <h2>Your ratings</h2>
+      <div id="ratings"></div>
+    </div>
+    <div class="panel col">
+      <h2>Review your last test</h2>
+      <div id="review"></div>
     </div>
     <div class="panel col">
       <h2>Overall trend</h2>
       <div id="skillChart"></div>
-      <span class="legend">Average of your six ratings at each check-in.</span>
+      <span class="legend">Average of your six ratings at each test.</span>
     </div>
   </section>
 </div>
@@ -322,8 +344,8 @@ var SKILLS=[
 ];
 
 /* ---------- state ---------- */
-var S={days:{},skills:{},target:90,sound:true,voice:true,wake:false,updatedAt:0};
-function norm(o){o=o||{};return {days:o.days||{},skills:o.skills||{},target:+o.target||90,sound:o.sound!==false,voice:o.voice!==false,wake:!!o.wake,updatedAt:+o.updatedAt||0}}
+var S={days:{},skills:{},target:90,sound:true,voice:true,wake:false,interval:7,lastIds:[],lastResult:null,updatedAt:0};
+function norm(o){o=o||{};return {days:o.days||{},skills:o.skills||{},target:+o.target||90,sound:o.sound!==false,voice:o.voice!==false,wake:!!o.wake,interval:[5,7,10,30].indexOf(+o.interval)>=0?+o.interval:7,lastIds:o.lastIds||[],lastResult:o.lastResult||null,updatedAt:+o.updatedAt||0}}
 try{var raw=localStorage.getItem(KEY);if(raw)S=norm(JSON.parse(raw))}catch(e){}
 
 function dkey(d){d=d||new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")}
@@ -424,6 +446,9 @@ function tick(){
   if(lastId===null){
     lastId=b.id;
     if(!b.rest)notify("You are in "+b.n+" until "+hm(b.e)+".","info","Right now: "+b.n+".");
+    var du0=dueInfo();
+    if(du0.base)notify("Take your baseline skill test on the Skills tab to set your starting ratings.","warn","Your baseline skill test is waiting.");
+    else if(du0.days<=0)notify("Your "+S.interval+"-day skill test is due. Take it on the Skills tab.","warn","Your skill test is due.");
   }else if(b.id!==lastId){
     var prev=B.find(function(x){return x.id===lastId});
     lastId=b.id;
@@ -577,24 +602,96 @@ function barChart(rows){
 }
 
 /* ---------- Skills tab ---------- */
+var Q=[{"k":"dsa","d":1,"q":"What is the time complexity of binary search on a sorted array of n elements?","o":["O(log n)","O(n)","O(n log n)","O(1)"],"x":"Each step halves the range that is left to search."},{"k":"dsa","d":1,"q":"Which data structure gives last-in, first-out access?","o":["Stack","Queue","Heap","Hash map"],"x":"A stack pushes and pops at the same end."},{"k":"dsa","d":1,"q":"What is the average time to look up a key in a hash map?","o":["O(1)","O(log n)","O(n)","O(n log n)"],"x":"The hash sends you straight to the bucket."},{"k":"dsa","d":1,"q":"Which traversal of a binary search tree visits the keys in sorted order?","o":["In-order","Pre-order","Post-order","Level-order"],"x":"In-order visits left subtree, node, then right subtree."},{"k":"dsa","d":1,"q":"Which structure does breadth-first search use to hold the nodes it will visit next?","o":["Queue","Stack","Priority queue","Hash set"],"x":"A queue processes nodes in the order they were found, level by level."},{"k":"dsa","d":1,"q":"What is the time to insert a node at the head of a singly linked list?","o":["O(1)","O(n)","O(log n)","O(n^2)"],"x":"Only the head pointer and one next pointer change."},{"k":"dsa","d":2,"q":"Which algorithm finds the shortest paths from one source in a graph with non-negative edge weights?","o":["Dijkstra's algorithm","Kruskal's algorithm","Depth-first search","Kadane's algorithm"],"x":"Dijkstra repeatedly settles the closest unsettled node."},{"k":"dsa","d":2,"q":"What is the worst-case time complexity of quicksort?","o":["O(n^2)","O(n log n)","O(n)","O(log n)"],"x":"Bad pivots split the array into sizes 0 and n-1 every time."},{"k":"dsa","d":2,"q":"How long does it take to build a binary heap from an unsorted array of n items?","o":["O(n)","O(n log n)","O(log n)","O(n^2)"],"x":"Bottom-up heapify is linear because most nodes sit near the leaves."},{"k":"dsa","d":2,"q":"On a sorted array, the two-pointer method for finding a pair with a target sum runs in what time?","o":["O(n)","O(n log n)","O(n^2)","O(log n)"],"x":"Each pointer only moves inward, so there are at most n steps."},{"k":"dsa","d":2,"q":"Which technique detects a cycle in a linked list using O(1) extra space?","o":["Fast and slow pointers","A hash set of visited nodes","Sorting the nodes","Recursion with memoization"],"x":"If there is a cycle, the fast pointer eventually meets the slow one."},{"k":"dsa","d":2,"q":"Dynamic programming applies when a problem has optimal substructure and what else?","o":["Overlapping subproblems","A sorted input","A greedy choice at every step","A unique solution"],"x":"Storing answers only pays off when the same subproblems repeat."},{"k":"dsa","d":3,"q":"The standard dynamic programming solution to 0/1 knapsack with n items and capacity W runs in what time?","o":["O(nW)","O(n log n)","O(n + W)","O(W log n)"],"x":"The table has one cell for each item and capacity pair."},{"k":"dsa","d":3,"q":"With path compression and union by rank, the amortized cost of a union-find operation is bounded by which function of n?","o":["Inverse Ackermann","Logarithm","Square root","Log of log"],"x":"The inverse Ackermann function is below 5 for any practical n."},{"k":"dsa","d":3,"q":"Which algorithm finds shortest paths with negative edge weights and can detect a negative cycle?","o":["Bellman-Ford","Dijkstra's algorithm","Prim's algorithm","Breadth-first search"],"x":"Bellman-Ford relaxes every edge n-1 times, then checks for a further improvement."},{"k":"dsa","d":3,"q":"What is the average time for quickselect to find the k-th smallest element of an unsorted array?","o":["O(n)","O(n log n)","O(k log n)","O(log n)"],"x":"It recurses into only one side of each partition."},{"k":"sd","d":1,"q":"What does a load balancer do?","o":["Spreads incoming requests across several servers","Stores session data permanently","Compresses database tables","Encrypts data at rest"],"x":"It keeps any single server from being overloaded."},{"k":"sd","d":1,"q":"What is the main purpose of a cache?","o":["Serve repeated reads faster from a nearby copy","Guarantee that data is never lost","Enforce a database schema","Spread writes across servers"],"x":"A cache trades freshness for speed on repeated reads."},{"k":"sd","d":1,"q":"What does horizontal scaling mean?","o":["Adding more machines","Adding CPU and RAM to one machine","Adding indexes to a table","Splitting code into more functions"],"x":"Adding power to one machine is vertical scaling."},{"k":"sd","d":1,"q":"What does a CDN mainly speed up?","o":["Delivery of static content to users far from the origin server","Database writes","Background job scheduling","Password hashing"],"x":"A CDN serves copies from locations close to the user."},{"k":"sd","d":1,"q":"Which HTTP status code means the client has sent too many requests?","o":["429","404","500","301"],"x":"429 Too Many Requests is the usual rate-limit response."},{"k":"sd","d":1,"q":"What does a message queue between two services mainly provide?","o":["Decoupling, so the producer does not wait for the consumer","Stronger data consistency","Faster SQL joins","Automatic schema migration"],"x":"The queue absorbs bursts and lets each side work at its own pace."},{"k":"sd","d":2,"q":"By the CAP theorem, what must a distributed system choose between during a network partition?","o":["Consistency and availability","Latency and throughput","Durability and isolation","Caching and sharding"],"x":"With a partition, you either refuse some requests or risk stale answers."},{"k":"sd","d":2,"q":"What is consistent hashing mainly used for?","o":["Limiting how many keys move when nodes are added or removed","Encrypting keys","Keeping keys in sorted order","Guaranteeing strong consistency"],"x":"Only the keys near the changed node are remapped."},{"k":"sd","d":2,"q":"What is database sharding?","o":["Splitting data across several databases by a key","Copying the same data to replicas","Adding an index to a large table","Compressing old rows"],"x":"Each shard holds a different slice of the data."},{"k":"sd","d":2,"q":"What makes an API request idempotent?","o":["Repeating it gives the same result as sending it once","It never fails","It needs no authentication","It always returns cached data"],"x":"Idempotency makes retries safe."},{"k":"sd","d":2,"q":"What do read replicas mainly help with?","o":["Scaling read traffic","Scaling write traffic","Removing the need for backups","Enforcing foreign keys"],"x":"Writes still go to the primary, and reads are spread across copies."},{"k":"sd","d":2,"q":"In a write-through cache, what happens on a write?","o":["The cache and the database are both updated before the write returns","Only the cache is updated","The cache entry is filled later, on the next read miss","The whole cache is cleared"],"x":"Write-through keeps the cache fresh at the cost of slower writes."},{"k":"sd","d":3,"q":"With N replicas, R nodes read and W nodes written per request, which condition guarantees a read sees the latest write?","o":["R + W > N","R + W = N","W > R","R = 1"],"x":"When R + W exceeds N, every read set overlaps every write set."},{"k":"sd","d":3,"q":"Which rate-limiting algorithm allows short bursts while enforcing an average rate?","o":["Token bucket","Leaky bucket with constant outflow","Round robin","Least connections"],"x":"Saved-up tokens allow a burst, and the refill rate caps the average."},{"k":"sd","d":3,"q":"What does the saga pattern do?","o":["Runs a transaction across services as local steps with compensating actions","Locks all rows in one database until commit","Caches the results of slow services","Finds the network address of a service"],"x":"If a step fails, earlier steps are undone by their compensating actions."},{"k":"sd","d":3,"q":"What problem does a write-ahead log solve?","o":["Recovering committed changes after a crash","Balancing load across servers","Reducing network latency","Avoiding hash collisions"],"x":"Changes are logged to disk before they are applied, so they can be replayed."},{"k":"ml","d":1,"q":"What does overfitting mean?","o":["The model does well on training data but poorly on new data","The model does poorly on both training and new data","Training takes too long","The model has too few parameters"],"x":"The model has memorized noise in the training set."},{"k":"ml","d":1,"q":"What does supervised learning need?","o":["Labelled examples","Only a reward signal","Only unlabelled data","No data at all"],"x":"The model learns a mapping from inputs to known labels."},{"k":"ml","d":1,"q":"What is a validation set for?","o":["Tuning hyperparameters and comparing models during development","Updating the model's weights","Replacing the training set when it is small","Storing the model's predictions"],"x":"The test set is kept back for the final check."},{"k":"ml","d":1,"q":"In which direction does gradient descent move the parameters?","o":["Opposite to the gradient of the loss","Along the gradient of the loss","In a random direction","Toward the largest weight"],"x":"The gradient points uphill, so you step the other way."},{"k":"ml","d":1,"q":"Which metric suits a classifier on heavily imbalanced classes better than accuracy?","o":["F1 score","Mean squared error","R-squared","Learning rate"],"x":"Accuracy can look high just by predicting the majority class."},{"k":"ml","d":1,"q":"What kind of task is logistic regression used for?","o":["Binary classification","Clustering","Dimensionality reduction","Predicting unbounded numeric values"],"x":"It outputs a probability between 0 and 1."},{"k":"ml","d":2,"q":"What does L2 regularization do?","o":["Penalizes large weights, which reduces overfitting","Sets many weights exactly to zero","Raises the learning rate","Removes outliers from the data"],"x":"Driving weights exactly to zero is the L1 effect."},{"k":"ml","d":2,"q":"A very deep, unpruned decision tree usually has which combination?","o":["Low bias and high variance","High bias and low variance","High bias and high variance","Low bias and low variance"],"x":"It fits the training data closely and changes a lot with new data."},{"k":"ml","d":2,"q":"How is precision defined? (TP, FP, FN, TN are the confusion-matrix counts.)","o":["TP / (TP + FP)","TP / (TP + FN)","TN / (TN + FP)","(TP + TN) / all"],"x":"Precision asks how many predicted positives were right. TP / (TP + FN) is recall."},{"k":"ml","d":2,"q":"Why is ReLU often preferred to sigmoid in deep networks?","o":["It reduces vanishing gradients","Its output is bounded between 0 and 1","It is differentiable everywhere","It turns outputs into probabilities"],"x":"The ReLU gradient is 1 for positive inputs, so it does not shrink through layers."},{"k":"ml","d":2,"q":"What does batch normalization do?","o":["Normalizes layer inputs over each mini-batch, which stabilizes training","Shuffles the batches every epoch","Removes the need for an optimizer","Converts labels to one-hot vectors"],"x":"Stable input distributions allow higher learning rates."},{"k":"ml","d":2,"q":"How does k-fold cross-validation work?","o":["Split the data into k parts, train on k-1 and validate on the other, rotating k times","Train k different models on the same full data","Repeat training for k epochs","Train on the k most important features"],"x":"Every example is used for validation exactly once."},{"k":"ml","d":3,"q":"What does the Adam optimizer combine?","o":["Momentum and per-parameter adaptive learning rates","Dropout and weight decay","Batch normalization and momentum","Second-order Hessian updates and momentum"],"x":"Adam tracks running averages of the gradient and of its square."},{"k":"ml","d":3,"q":"For a softmax output with cross-entropy loss, what is the gradient with respect to the logits?","o":["Predicted probabilities minus the one-hot target","The one-hot target minus the squared logits","The logits themselves","Always 1 for the correct class"],"x":"The softmax and log terms cancel, leaving p minus y."},{"k":"ml","d":3,"q":"How do bagging and boosting differ?","o":["Bagging trains models independently on resampled data; boosting trains them in sequence on earlier errors","Boosting trains models independently; bagging trains them in sequence","They are two names for the same method","Bagging only works with linear models"],"x":"Bagging mainly cuts variance, and boosting mainly cuts bias."},{"k":"ml","d":3,"q":"Which statement about PCA is true?","o":["Its components are eigenvectors of the data covariance matrix, ordered by variance explained","Its components are the centres of clusters","It needs class labels","It maximizes the separation between classes"],"x":"Maximizing class separation is what LDA does."},{"k":"llm","d":1,"q":"In a language model, what is a token?","o":["A chunk of text, such as a word or word piece, that the model processes","One full sentence","A model weight","A training step"],"x":"Text is split into tokens before the model sees it."},{"k":"llm","d":1,"q":"Which Hugging Face library loads pretrained models such as BERT?","o":["transformers","pandas","flask","pytest"],"x":"The transformers library provides the models and their tokenizers."},{"k":"llm","d":1,"q":"What does fine-tuning mean?","o":["Continuing to train a pretrained model on a smaller, task-specific dataset","Training a model from random weights","Changing only the prompt","Compressing a model for deployment"],"x":"It adapts existing knowledge instead of starting over."},{"k":"llm","d":1,"q":"What is the core mechanism of the Transformer architecture?","o":["Self-attention","Convolution","Recurrence","Pooling"],"x":"Self-attention lets every token look at every other token."},{"k":"llm","d":1,"q":"What does an embedding represent?","o":["Text as a vector of numbers that captures its meaning","A compressed archive of the text","The number of words in the text","A list of grammar rules"],"x":"Texts with similar meaning get vectors that are close together."},{"k":"llm","d":1,"q":"What does temperature control in text generation?","o":["How random the sampling is","The maximum output length","The size of the model","The learning rate"],"x":"A higher temperature flattens the probabilities, so outputs vary more."},{"k":"llm","d":2,"q":"What does retrieval-augmented generation (RAG) do?","o":["Retrieves relevant documents and adds them to the prompt before generating","Retrains the model on every query","Removes attention layers to save memory","Ranks answers from several models"],"x":"The model answers from the supplied context, not only from its weights."},{"k":"llm","d":2,"q":"How do BERT and GPT differ?","o":["BERT is an encoder trained on masked tokens; GPT is a decoder trained to predict the next token","GPT is an encoder trained on masked tokens; BERT is a decoder trained to predict the next token","Both are encoder-decoder models","BERT generates text and GPT only classifies it"],"x":"BERT reads in both directions, and GPT reads left to right."},{"k":"llm","d":2,"q":"Why do Transformers need positional encodings?","o":["Self-attention by itself has no sense of token order","To reduce the vocabulary size","To speed up tokenization","To prevent overfitting"],"x":"Without position information, the input is treated as an unordered set."},{"k":"llm","d":2,"q":"What does LoRA do?","o":["Freezes the base weights and trains small low-rank matrices added to them","Trains all weights at lower precision","Removes attention heads","Distils the model into a smaller one"],"x":"Only a small fraction of parameters is trained, so it is cheap."},{"k":"llm","d":2,"q":"What is a model's context window?","o":["The maximum number of tokens it can attend to at once","The time it took to train","The number of layers it has","The size of its vocabulary"],"x":"The prompt and the output together must fit inside it."},{"k":"llm","d":2,"q":"In an AI agent, what is tool calling?","o":["The model outputs a structured request for a function; the app runs it and returns the result","The model runs code inside its own weights","Fine-tuning the model on tool manuals","A way to compress long prompts"],"x":"The model decides what to call, and your code does the calling."},{"k":"llm","d":3,"q":"In scaled dot-product attention, why are the scores divided by the square root of the key dimension?","o":["To stop large dot products pushing softmax into regions with tiny gradients","To make the outputs sum to 1","To reduce memory use","To stop tokens attending to later positions"],"x":"Dot products grow with dimension, and scaling keeps the softmax from saturating."},{"k":"llm","d":3,"q":"What is the main trade-off of quantizing a model to 4-bit weights?","o":["A small loss in accuracy for much lower memory use","Slower training for higher accuracy","A shorter context window for more speed","A smaller vocabulary for less memory"],"x":"Fewer bits per weight shrink the model at some cost in precision."},{"k":"llm","d":3,"q":"What does causal masking do in a decoder?","o":["Stops each position from attending to later positions","Hides only the padding tokens","Drops random tokens during training","Masks 15% of tokens for the model to predict"],"x":"The model must not see the tokens it is trying to predict."},{"k":"llm","d":3,"q":"How does key-value caching speed up generation?","o":["It reuses the keys and values of earlier tokens, so they are not recomputed for each new token","It stores finished answers for repeated prompts","It saves embeddings to disk","It skips half of the layers"],"x":"Only the newest token needs a full pass through attention."},{"k":"cv","d":1,"q":"What does a convolution layer learn?","o":["Small filters that detect local patterns such as edges","One global average of the image","A sorted list of pixel values","The class labels"],"x":"The same filter slides over the whole image."},{"k":"cv","d":1,"q":"How many channels does a standard RGB image have?","o":["3","1","2","8"],"x":"One channel each for red, green and blue."},{"k":"cv","d":1,"q":"What does max pooling do?","o":["Downsamples by keeping the largest value in each window","Adds padding around the image","Increases the resolution","Normalizes pixel values"],"x":"It shrinks the feature map and keeps the strongest responses."},{"k":"cv","d":1,"q":"How does object detection differ from image classification?","o":["Detection also outputs a bounding box for each object","Detection only works on grayscale images","Classification outputs bounding boxes","There is no difference"],"x":"Classification gives one label for the whole image."},{"k":"cv","d":1,"q":"Which of these is data augmentation?","o":["Randomly flipping and cropping training images","Adding more layers to the model","Lowering the learning rate","Removing the validation set"],"x":"Augmentation creates varied copies of the training data."},{"k":"cv","d":1,"q":"Which Python library is widely used for classical image processing?","o":["OpenCV","Requests","SQLAlchemy","Flask"],"x":"OpenCV covers filtering, feature detection, camera calibration and more."},{"k":"cv","d":2,"q":"What does intersection over union (IoU) measure?","o":["The overlap area of two boxes divided by the area of their union","The distance between two box centres","The ratio of two box areas","The number of pixels in the smaller box"],"x":"IoU is 1 for identical boxes and 0 for boxes that do not overlap."},{"k":"cv","d":2,"q":"How do residual (skip) connections help in ResNet?","o":["They let gradients flow through very deep networks","They reduce the image size","They remove the need for labels","They replace the convolutions"],"x":"The shortcut gives gradients a direct path back to early layers."},{"k":"cv","d":2,"q":"What does non-maximum suppression do?","o":["Removes overlapping duplicate boxes and keeps the highest-scoring one","Lowers the learning rate when the loss stalls","Removes dark pixels","Pads the image to a square"],"x":"Detectors often fire several boxes on the same object."},{"k":"cv","d":2,"q":"What is transfer learning in computer vision?","o":["Starting from a model pretrained on a large dataset and fine-tuning it on yours","Copying images between datasets","Training two models at the same time","Converting images to grayscale"],"x":"Pretrained features such as edges and textures carry over to new tasks."},{"k":"cv","d":2,"q":"What does semantic segmentation output?","o":["A class label for every pixel","One label for the whole image","Bounding boxes only","Keypoints only"],"x":"The output is a mask the same size as the image."},{"k":"cv","d":2,"q":"A 3x3 convolution with stride 1 and padding 1 is applied to a 32x32 input. What is the output size?","o":["32x32","30x30","16x16","34x34"],"x":"(32 + 2 - 3) / 1 + 1 = 32, so the size is unchanged."},{"k":"cv","d":3,"q":"How does a Vision Transformer take in an image?","o":["It splits the image into fixed-size patches and embeds each one as a token","It reads the pixels one at a time with a recurrent network","It uses only convolutions","It applies a Fourier transform first"],"x":"The patches play the role that words play in a text model."},{"k":"cv","d":3,"q":"What does a camera's intrinsic matrix contain?","o":["Focal lengths and the principal point","The camera's rotation and translation in the world","The lens manufacturer","The exposure time"],"x":"Rotation and translation are the extrinsic parameters."},{"k":"cv","d":3,"q":"What is the receptive field of two stacked 3x3 convolutions with stride 1?","o":["5x5","3x3","6x6","9x9"],"x":"Each extra 3x3 layer adds 2 pixels to the receptive field."},{"k":"cv","d":3,"q":"In object detection, what does mean average precision (mAP) average?","o":["The average precision of each class","The pixel accuracy of each image","The area of each box","The loss of each batch"],"x":"Average precision summarizes the precision-recall curve for one class."},{"k":"rob","d":1,"q":"What do P, I and D stand for in a PID controller?","o":["Proportional, integral, derivative","Position, inertia, direction","Power, input, drive","Path, iteration, delay"],"x":"The three terms react to the present error, its sum, and its rate of change."},{"k":"rob","d":1,"q":"What is ROS?","o":["A set of software libraries and tools for building robot applications","A programming language for robots","A motor driver chip","A battery standard"],"x":"Despite the name, it runs on top of an operating system such as Linux."},{"k":"rob","d":1,"q":"Which sensor measures distance by timing laser pulses?","o":["LiDAR","IMU","Wheel encoder","Thermistor"],"x":"LiDAR times how long each pulse takes to return."},{"k":"rob","d":1,"q":"How many degrees of freedom does a rigid body have in 3D space?","o":["6","3","4","9"],"x":"Three for position and three for orientation."},{"k":"rob","d":1,"q":"What is an actuator?","o":["A component that produces motion, such as a motor","A component that measures the environment","A component that stores energy","A path-planning algorithm"],"x":"Sensors measure, and actuators act."},{"k":"rob","d":1,"q":"How do ROS nodes commonly exchange messages?","o":["By publishing and subscribing to topics","Through shared global variables","By editing each other's source code","Through a shared text file"],"x":"A publisher does not need to know who is subscribed."},{"k":"rob","d":2,"q":"What does forward kinematics compute?","o":["The end-effector pose from the joint angles","The joint angles needed for a desired pose","The motor torques","The battery drain"],"x":"Going from a desired pose back to joint angles is inverse kinematics."},{"k":"rob","d":2,"q":"What does the integral term of a PID controller remove?","o":["Steady-state error","Overshoot","Sensor noise","Communication delay"],"x":"It keeps growing while any error remains."},{"k":"rob","d":2,"q":"What does SLAM do?","o":["Builds a map while estimating the robot's position in it","Plans a path on a known map","Recognizes spoken commands","Calibrates the motors"],"x":"SLAM stands for simultaneous localization and mapping."},{"k":"rob","d":2,"q":"What does a Kalman filter do?","o":["Combines a motion prediction with noisy measurements to estimate the state","Plans the shortest path to a goal","Trains a neural network","Sets motor voltages directly"],"x":"It weights the prediction and the measurement by how uncertain each is."},{"k":"rob","d":2,"q":"What does A* use to choose the next node to expand?","o":["The cost so far plus a heuristic estimate of the cost to the goal","Random sampling","Only the heuristic estimate","Only the cost so far"],"x":"Using only the cost so far is Dijkstra's algorithm."},{"k":"rob","d":2,"q":"Why does odometry from wheel encoders drift over time?","o":["Small errors, such as wheel slip, add up","The encoders lose power","GPS signals interfere","Gravity changes along the route"],"x":"Each step's error is added to all the earlier ones."},{"k":"rob","d":3,"q":"What does the Jacobian of a robot arm relate?","o":["Joint velocities to end-effector velocity","Link masses to inertia","Motor voltage to current","Joint angles to battery drain"],"x":"It is the derivative of the forward kinematics."},{"k":"rob","d":3,"q":"Why are unit quaternions often preferred to Euler angles for 3D orientation?","o":["They avoid gimbal lock","They use fewer numbers","They are easier to read","They never need normalizing"],"x":"Euler angles lose a degree of freedom at certain orientations."},{"k":"rob","d":3,"q":"How does an extended Kalman filter handle nonlinear models?","o":["It linearizes them around the current estimate using Jacobians","It represents the state with random particles","It ignores the nonlinear terms","It uses a lookup table"],"x":"Representing the state with particles is the particle filter."},{"k":"rob","d":3,"q":"A differential-drive robot spins both wheels at the same speed in opposite directions. What does it do?","o":["Rotates on the spot","Drives straight","Follows a wide arc","Stays still"],"x":"The wheel speeds cancel for forward motion and add for rotation."}];
+var PTS={1:1,2:2,3:3},PICK={1:2,2:2,3:1},RUN=null;
+function shuffle(a){for(var i=a.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1)),t=a[i];a[i]=a[j];a[j]=t}return a}
 function skillDates(){return Object.keys(S.skills).sort()}
+function avgOf(o){return SKILLS.reduce(function(a,s){return a+(o[s.id]||0)},0)/SKILLS.length}
+function dueInfo(){
+  var ds=skillDates();if(!ds.length)return {base:true,days:0,date:null};
+  var d=new Date(ds[ds.length-1]+"T00:00:00");d.setDate(d.getDate()+S.interval);
+  var t=new Date();t.setHours(0,0,0,0);
+  return {base:false,days:Math.round((d-t)/864e5),date:d};
+}
+function buildTest(){
+  var qs=[];
+  SKILLS.forEach(function(s){
+    [1,2,3].forEach(function(dv){
+      var pool=[];Q.forEach(function(q,i){if(q.k===s.id&&q.d===dv)pool.push(i)});
+      var fresh=pool.filter(function(i){return S.lastIds.indexOf(i)<0});
+      if(fresh.length<PICK[dv])fresh=pool;
+      shuffle(fresh).slice(0,PICK[dv]).forEach(function(i){qs.push({i:i,o:shuffle([0,1,2,3])})});
+    });
+  });
+  return qs;
+}
+function renderRun(){
+  var r=RUN,q=r.qs[r.pos],b=Q[q.i],sk=SKILLS.find(function(s){return s.id===b.k});
+  $("#tqSkill").textContent=sk.n;
+  $("#tqCount").textContent="Question "+(r.pos+1)+" of "+r.qs.length;
+  $("#tqBar").style.width=(r.pos/r.qs.length*100)+"%";
+  $("#tqText").textContent=b.q;
+  var pk=r.picks[r.pos];
+  $("#tqOpts").innerHTML=q.o.map(function(oi){return '<button class="opt" data-act="pick" data-o="'+oi+'" aria-pressed="'+(pk===oi)+'">'+esc(b.o[oi])+"</button>"}).join("");
+  var nx=$("#tqNext");nx.disabled=pk===undefined;nx.textContent=r.pos===r.qs.length-1?"Finish and get my rating":"Next question";
+}
+function finishTest(){
+  var r=RUN,k=dkey(),pts={},right=0,wrong=[];
+  var before=skillDates().filter(function(d){return d!==k}),prev=before.length?S.skills[before[before.length-1]]:null;
+  SKILLS.forEach(function(s){pts[s.id]=0});
+  r.qs.forEach(function(q,n){var b=Q[q.i];if(r.picks[n]===0){pts[b.k]+=PTS[b.d];right++}else wrong.push([q.i,r.picks[n]])});
+  var o={test:1,quiz:Math.round(right/r.qs.length*100)};
+  SKILLS.forEach(function(s){o[s.id]=1+pts[s.id]});
+  S.skills[k]=o;S.lastIds=r.qs.map(function(q){return q.i});S.lastResult={date:k,right:right,total:r.qs.length,wrong:wrong};
+  RUN=null;save();renderSkills();scheduleNative();
+  var a=avgOf(o),msg="Test saved. "+right+" of "+r.qs.length+" correct, overall rating "+a.toFixed(1)+".";
+  if(prev){var d=a-avgOf(prev);msg+=" That is "+(d>0?"up "+d.toFixed(1):d<0?"down "+Math.abs(d).toFixed(1):"unchanged")+" since your last test."}
+  $("#testMsg").textContent=msg;
+}
 function renderSkills(){
-  var ds=skillDates(),last=ds.length?S.skills[ds[ds.length-1]]:null,first=ds.length?S.skills[ds[0]]:null;
-  var today=S.skills[dkey()];
-  $("#ciDate").textContent=last?"Last check-in "+new Date(ds[ds.length-1]+"T12:00:00").toLocaleDateString(undefined,{day:"numeric",month:"short"}):"No check-in yet";
-  $("#skillRows").innerHTML=SKILLS.map(function(s){
-    var v=today?today[s.id]:(last?last[s.id]:3);v=v||3;
-    var dl="";
-    if(first&&last&&ds.length>1){var d=(last[s.id]||0)-(first[s.id]||0);dl='<span class="delta '+(d>0?"up":d<0?"down":"muted")+'">'+(d>0?"+":"")+d+" since first check-in</span>"}
-    else dl='<span class="delta muted">First rating becomes your baseline</span>';
-    return '<div class="skill"><div><label for="sk-'+s.id+'" style="font-weight:500">'+s.n+'</label><br>'+dl+'</div><input type="range" id="sk-'+s.id+'" data-sk="'+s.id+'" min="1" max="10" step="1" value="'+v+'"><span class="v mono" id="skv-'+s.id+'">'+v+'</span></div>';
-  }).join("");
-  var q=today&&today.quiz!==undefined?today.quiz:(last&&last.quiz!==undefined?last.quiz:"");
-  $("#f-quiz").value=q;
+  var ds=skillDates(),n=ds.length,last=n?S.skills[ds[n-1]]:null,prev=n>1?S.skills[ds[n-2]]:null,first=n?S.skills[ds[0]]:null,du=dueInfo();
+  $("#testHome").hidden=!!RUN;$("#testRun").hidden=!RUN;
+  if(RUN)renderRun();
+  var dl=$("#dueLabel");
+  dl.className="pill"+(du.days<=0?" due":"");
+  dl.textContent=du.base?"Baseline not taken":du.days<=0?"Test due now":"Next test in "+du.days+(du.days===1?" day":" days");
+  $("#btnStart").textContent=du.base?"Start baseline test":du.days<=0?"Start test":"Take the test early";
+  $("#intervals").innerHTML=[5,7,10,30].map(function(v){return '<button class="chip" data-act="interval" data-n="'+v+'" aria-pressed="'+(S.interval===v)+'">'+v+" days</button>"}).join("");
+  if(!last){$("#ratings").innerHTML='<div class="empty">No ratings yet. Your baseline test sets a starting rating for each of the six skills, and every later test shows how far each one has moved.</div>'}
+  else{
+    var when=new Date(ds[n-1]+"T12:00:00").toLocaleDateString(undefined,{day:"numeric",month:"short",year:"numeric"});
+    var h='<div class="overall"><b class="mono">'+avgOf(last).toFixed(1)+'</b><span class="muted">overall, out of 10'+(last.quiz!==undefined?" · "+last.quiz+"% correct":"")+" · "+when+"</span></div>";
+    h+=SKILLS.map(function(s){
+      var v=last[s.id]||0,t="Baseline rating";
+      if(prev){var d1=v-(prev[s.id]||0),d2=v-(first[s.id]||0);
+        t='<span class="'+(d1>0?"up":d1<0?"down":"muted")+'">'+(d1>0?"+":"")+d1+" since last test</span>"+(n>2?' <span class="muted">· '+(d2>0?"+":"")+d2+" since baseline</span>":"")}
+      return '<div class="skill"><div><span style="font-weight:500">'+s.n+'</span><br><span class="delta">'+t+'</span></div><div class="bar"><i style="width:'+(v*10)+'%"></i></div><span class="v mono">'+v+"</span></div>";
+    }).join("");
+    $("#ratings").innerHTML=h;
+  }
+  var lr=S.lastResult;
+  if(!lr)$("#review").innerHTML='<div class="empty">After each test, every question you got wrong appears here with the right answer and a one-line reason.</div>';
+  else if(!lr.wrong.length)$("#review").innerHTML='<div class="empty">No wrong answers on your last test.</div>';
+  else $("#review").innerHTML=lr.wrong.map(function(w){var b=Q[w[0]];if(!b)return "";
+    return '<div class="rv"><b>'+esc(b.q)+'</b><span class="no">Your answer: '+esc(b.o[w[1]])+'</span><span class="ok">Correct answer: '+esc(b.o[0])+'</span><span class="muted">'+esc(b.x)+"</span></div>"}).join("");
   $("#skillChart").innerHTML=skillChart(ds);
 }
+function scheduleNative(){
+  var LN=window.Capacitor&&Capacitor.Plugins&&Capacitor.Plugins.LocalNotifications;
+  if(!LN)return;
+  LN.requestPermissions().then(function(p){
+    if(p.display!=="granted")return;
+    return LN.getPending().then(function(r){return r.notifications&&r.notifications.length?LN.cancel({notifications:r.notifications}):null}).then(function(){
+      var list=TRACK.map(function(b,i){return {id:i+1,title:hm(b.s)+" · "+b.n,body:"Until "+hm(b.e)+". Open the tracker to mark it done.",schedule:{on:{hour:Math.floor(b.s/60),minute:b.s%60},allowWhileIdle:true}}});
+      list.push({id:50,title:"Sleep time",body:"Work is over. Seven hours, no exceptions.",schedule:{on:{hour:23,minute:0},allowWhileIdle:true}});
+      var du=dueInfo();
+      if(!du.base&&du.days>0){var at=new Date(du.date);at.setHours(9,45,0,0);list.push({id:60,title:"Skill test due today",body:"Take your "+S.interval+"-day test to update your ratings.",schedule:{at:at,allowWhileIdle:true}})}
+      return LN.schedule({notifications:list});
+    });
+  }).catch(function(){});
+}
 function skillChart(ds){
-  if(!ds.length)return '<div class="empty">No check-ins yet. Rate your six skills above and save. The trend line appears after your second weekly check-in.</div>';
+  if(!ds.length)return '<div class="empty">No tests yet. The trend line appears after your second test.</div>';
   ds=ds.slice(-8);
   var pts=ds.map(function(k){var o=S.skills[k];return {k:k,v:SKILLS.reduce(function(a,s){return a+(o[s.id]||0)},0)/SKILLS.length}});
   var W=560,H=210,pl=34,pr=16,pt=14,pb=30,iw=W-pl-pr,ih=H-pt-pb;
@@ -644,11 +741,11 @@ document.addEventListener("click",function(e){
   else if(a==="tReset"){T.mode="idle";T.left=T.pre.m*60;timerTick()}
   else if(a==="step"){var cur=getDay(k).log[t.dataset.f];setField(t.dataset.f,Math.max(0,num(cur)+ +t.dataset.d))}
   else if(a==="target"){S.target=Math.max(10,Math.min(168,S.target+ +t.dataset.d));save();$("#f-target").value=S.target;renderWeek();renderToday()}
-  else if(a==="saveSkills"){
-    var o={};SKILLS.forEach(function(s){o[s.id]=+$("#sk-"+s.id).value});
-    var q=$("#f-quiz").value;if(q!=="")o.quiz=Math.max(0,Math.min(100,+q));
-    S.skills[k]=o;save();renderSkills();$("#ciMsg").textContent="Saved."
-  }
+  else if(a==="startTest"){RUN={qs:buildTest(),pos:0,picks:[]};$("#testMsg").textContent="";renderSkills();$("#testRun").scrollIntoView({block:"start"})}
+  else if(a==="pick"){if(RUN){RUN.picks[RUN.pos]=+t.dataset.o;renderRun()}}
+  else if(a==="nextQ"){if(RUN&&RUN.picks[RUN.pos]!==undefined){if(RUN.pos===RUN.qs.length-1)finishTest();else{RUN.pos++;renderRun()}}}
+  else if(a==="quitTest"){RUN=null;renderSkills()}
+  else if(a==="interval"){S.interval=+t.dataset.n;save();renderSkills();scheduleNative()}
 });
 document.addEventListener("change",function(e){
   var t=e.target;
@@ -659,26 +756,13 @@ document.addEventListener("change",function(e){
 document.addEventListener("input",function(e){
   var t=e.target;
   if(t.id==="f-note"){ensureDay(dkey()).log.note=t.value;save()}
-  else if(t.dataset.sk){$("#skv-"+t.dataset.sk).textContent=t.value}
 });
 
-function scheduleNative(){
-  var LN=window.Capacitor&&Capacitor.Plugins&&Capacitor.Plugins.LocalNotifications;
-  if(!LN)return;
-  LN.requestPermissions().then(function(p){
-    if(p.display!=="granted")return;
-    return LN.getPending().then(function(r){return r.notifications&&r.notifications.length?LN.cancel({notifications:r.notifications}):null}).then(function(){
-      var list=TRACK.map(function(b,i){return {id:i+1,title:hm(b.s)+" · "+b.n,body:"Until "+hm(b.e)+". Open the tracker to mark it done.",schedule:{on:{hour:Math.floor(b.s/60),minute:b.s%60},allowWhileIdle:true}}});
-      list.push({id:50,title:"Sleep time",body:"Work is over. Seven hours, no exceptions.",schedule:{on:{hour:23,minute:0},allowWhileIdle:true}});
-      return LN.schedule({notifications:list});
-    });
-  }).catch(function(){});
-}
 renderAll();
 tick();
-scheduleNative();
 setInterval(tick,1000);
 initStore();
+scheduleNative();
 if(S.wake)setWake(true);
 if("serviceWorker" in navigator&&location.protocol==="https:"){navigator.serviceWorker.register("sw.js").catch(function(){})}
 })();
